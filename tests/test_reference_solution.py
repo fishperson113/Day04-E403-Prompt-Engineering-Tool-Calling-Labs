@@ -38,6 +38,7 @@ def test_save_order_matches_expected_fixture(tmp_path: Path) -> None:
     assert result["saved_order"]["order_id"] == expected["order_id"]
     assert result["saved_order"]["pricing"] == expected["pricing"]
     assert result["saved_order"]["items"] == expected["items"]
+    assert result["saved_order"]["save_path"] == expected["save_path"]
 
 
 def test_clarification_case_stops_before_model_or_tools() -> None:

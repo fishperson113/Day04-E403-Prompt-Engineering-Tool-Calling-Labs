@@ -274,7 +274,7 @@ class OrderDataStore:
                 "customer_tier": customer_tier,
             },
             "notes": notes.strip(),
-            "save_path": str(relative_path),
+            "save_path": relative_path.as_posix(),
             "source": "llm-order-agent",
         }
         absolute_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
