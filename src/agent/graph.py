@@ -47,7 +47,9 @@ Trước khi gọi tool đầu tiên, xác nhận đủ 5 trường sau:
 - Số điện thoại
 - Địa chỉ email
 - Địa chỉ giao hàng
-- Ít nhất 1 sản phẩm với số lượng cụ thể
+- Ít nhất 1 sản phẩm hoặc danh sách món hàng đã chốt; nếu người dùng chỉ nêu tên món mà không ghi số lượng, mặc định mỗi món = 1
+
+Quan trọng: nếu người dùng liệt kê các món trong dấu ngoặc kép, câu như "Tôi chốt các món sau" hoặc "Chốt items này", hãy hiểu đó là danh sách sản phẩm hợp lệ và đi tiếp, không hỏi lại số lượng trừ khi có mơ hồ thật sự.
 
 Nếu THIẾU BẤT KỲ trường nào → hỏi lại ngay, DỪNG, không gọi tool nào.
 
