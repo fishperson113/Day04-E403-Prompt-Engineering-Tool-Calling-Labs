@@ -31,6 +31,8 @@ def build_chat_model(
     provider: str = "google",
     model_name: str | None = None,
     temperature: float = 0.0,
+    base_url: str | None = None,
+    api_key: str | None = None,
 ):
     if provider == "google":
         from langchain_google_genai import ChatGoogleGenerativeAI
@@ -38,8 +40,23 @@ def build_chat_model(
         return ChatGoogleGenerativeAI(
             model=model_name or os.getenv("LLM_MODEL", "gemini-2.5-flash"),
             temperature=temperature,
-            google_api_key=os.getenv("GOOGLE_API_KEY"),
+            google_api_key=api_key or os.getenv("GOOGLE_API_KEY"),
         )
+
+    if provider == "openai":
+        from langchain_openai import ChatOpenAI
+
+        # Supports both direct OpenAI and custom proxy (e.g. NineRouter)
+        effective_base_url = base_url or os.getenv("OPENAI_BASE_URL") or os.getenv("NINEROUTER_URL")
+        effective_api_key = api_key or os.getenv("OPENAI_API_KEY") or os.getenv("NINEROUTER_KEY")
+
+        return ChatOpenAI(
+            model=model_name or os.getenv("OPENAI_MODEL", "gpt-4o"),
+            temperature=temperature,
+            openai_api_key=effective_api_key,
+            openai_api_base=effective_base_url,
+        )
+
     if provider == "ollama":
         from langchain_ollama import ChatOllama
 

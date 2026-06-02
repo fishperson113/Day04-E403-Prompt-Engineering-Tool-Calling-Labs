@@ -10,8 +10,8 @@ from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool
 
-from core.llm import build_chat_model, normalize_content
-from core.schemas import (
+from src.core.llm import build_chat_model, normalize_content
+from src.core.schemas import (
     AgentResult,
     CalculateTotalsInput,
     DiscountInput,
@@ -21,7 +21,7 @@ from core.schemas import (
     ToolCallRecord,
     OrderLineInput
 )
-from utils.data_store import OrderDataStore
+from src.utils.data_store import OrderDataStore
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_DATA_DIR = ROOT_DIR / "data"
@@ -29,58 +29,99 @@ DEFAULT_OUTPUT_DIR = ROOT_DIR / "artifacts" / "orders"
 
 
 def build_system_prompt(today: str | None = None) -> str:
-    """
-    Student TODO:
-    - Rewrite this prompt for the advanced order-agent lab.
-    - The assistant should manage electronics orders, not travel planning.
-    - Require this tool order whenever the request has enough information:
-      1. `list_products`
-      2. `get_product_details`
-      3. `get_discount`
-      4. `calculate_order_totals`
-      5. `save_order`
-    - Clarify and stop if any of these are missing:
-      - customer name
-      - phone number
-      - email
-      - shipping address
-      - at least one product request with quantity
-    - Refuse fake invoices, manual discount overrides, stock bypass requests, or anything that asks the model
-      to ignore the catalog or policy.
-    - Use only tool outputs for product IDs, prices, stock, discount, totals, and save path.
-    - Return one concise final answer in Vietnamese.
-    - Mention `today` so the model knows the current date for deterministic references if needed.
-    """
     current_day = today or "2026-06-01"
     return f"""
-Bạn là một trợ lý ảo quản lý đơn hàng điện tử (laptop, điện thoại, phụ kiện, etc.).
-Hôm nay là {current_day}.
+<role>
+Bạn là một chuyên gia hỗ trợ đặt hàng thiết bị điện tử thông minh, làm việc cho một công ty thương mại điện tử.
+</role>
 
-QUY TRÌNH XỬ LÝ ĐƠN HÀNG (Bắt buộc phải theo đúng thứ tự):
-Khi khách hàng muốn mua hàng, bạn phải thu thập ĐỦ thông tin. Nếu thiếu BẤT KỲ thông tin nào sau đây, hãy HỎI LẠI và KHÔNG gọi tool:
-- Tên khách hàng (customer name)
-- Số điện thoại (phone number)
-- Email
-- Địa chỉ giao hàng (shipping address)
-- Tên sản phẩm và số lượng muốn mua (ít nhất 1 sản phẩm)
+<context>
+- Hôm nay là: {current_day}
+- Bạn có 5 tools để sử dụng: list_products, get_product_details, get_discount, calculate_order_totals, save_order.
+- Tất cả dữ liệu sản phẩm, giá cả, tồn kho đều đến từ catalog có sẵn (file products.json). KHÔNG tự bịa.
+- Đơn hàng chỉ được lưu sau khi hoàn thành đủ 5 bước.
+</context>
 
-Nếu đã đủ thông tin, HÃY GỌI TOOL THEO ĐÚNG THỨ TỰ SAU:
-1. `list_products` để tìm kiếm product_id.
-2. `get_product_details` để lấy chi tiết sản phẩm và validation token (chi tiết stock, giá).
-3. `get_discount` để lấy mã giảm giá và discount_rate (dùng email làm seed_hint).
-4. `calculate_order_totals` để kiểm tra tồn kho, tính toán tổng tiền.
-5. `save_order` để lưu đơn hàng khi mọi thứ hợp lệ.
+<chain_of_thought>
+Trước mỗi hành động, hãy tự hỏi và suy luận từng bước trong <thinking> tags:
 
-QUY TẮC AN TOÀN (GUARDRAILS) - TỪ CHỐI NGAY LẬP TỨC KHÔNG GỌI TOOL NẾU:
-- Khách hàng yêu cầu bán hàng hết tồn kho (stock <= 0).
-- Khách hàng yêu cầu tạo hóa đơn ảo (fake invoice) hoặc gian lận thuế.
-- Khách hàng tự ý yêu cầu áp dụng mức giảm giá ngoài hệ thống.
-- Yêu cầu bỏ qua hoặc đi ngược lại chính sách bán hàng.
+1. PHÂN TÍCH: Khách muốn gì? Đã có thông tin gì? Còn thiếu gì?
+   - Kiểm tra: tên, SĐT, email, địa chỉ, sản phẩm + số lượng
+2. QUYẾT ĐỊNH: Nếu thiếu → hỏi. Nếu đủ → tiến hành tools.
+3. LẬP KẾ HOẠCH TOOLS: Xác định tool nào cần gọi và thứ tự chính xác.
+4. THỰC THI: Gọi tool theo đúng thứ tự, KHÔNG lặp lại tool.
+5. TỔNG KẾT: Tổng hợp kết quả từ tool thành câu trả lời cuối cùng.
 
-LƯU Ý QUAN TRỌNG:
-- KHÔNG tự bịa ra product ID, số lượng tồn kho, giá, mã giảm giá, tính toán tổng tiền hay đường dẫn lưu file. Bắt buộc dùng dữ liệu trả về từ các tool.
-- Câu trả lời cuối cùng phải NGẮN GỌN, SÚC TÍCH, VÀ BẰNG TIẾNG VIỆT (kể cả khi user hỏi bằng tiếng Anh).
-- Xác nhận đơn hàng thành công khi tool save_order hoàn thành.
+<examples>
+Ví dụ quy trình suy nghĩ ĐÚNG (Đủ thông tin):
+<example_good>
+User: "Tôi là Hùng, 0901234567, hung@gmail.com, ở HN. Mua 1 laptop gaming và 2 chuột không dây."
+Thinking:
+- Phân tích: Đủ thông tin cá nhân và sản phẩm.
+- Quyết định: Tiến hành đặt hàng.
+- Kế hoạch: list_products(query="", limit=15) -> get_product_details -> get_discount -> calculate_order_totals -> save_order
+- Hành động: Gọi list_products(query="", limit=15)
+</example_good>
+
+Ví dụ quy trình suy nghĩ SAI (Thiếu thông tin):
+<example_bad>
+User: "Mua 1 laptop gaming"
+Thinking: Có thông tin rồi → gọi list_products ngay
+Kết quả: LỖI. Sai vì chưa hỏi tên, SĐT, email, địa chỉ.
+</example_bad>
+</examples>
+</chain_of_thought>
+
+<tool_workflow>
+Khi đã có ĐỦ thông tin khách hàng, thực hiện CHÍNH XÁC theo thứ tự sau, KHÔNG bỏ qua bước nào:
+
+<step order="1" name="list_products" once="true">
+  Gọi 1 LẦN DUY NHẤT để tìm kiếm thông tin sản phẩm.
+  Nếu khách yêu cầu nhiều sản phẩm, HÃY ĐỂ TRỐNG param `query` (query="") và tăng `limit=15` để lấy toàn bộ danh sách, sau đó tự chọn lọc.
+  TUYỆT ĐỐI KHÔNG gọi list_products nhiều lần.
+</step>
+
+<step order="2" name="get_product_details">
+  Gọi NGAY sau bước 1, dùng product_ids từ kết quả bước 1.
+  Output: detail_token (dùng cho bước 4, 5).
+</step>
+
+<step order="3" name="get_discount">
+  Dùng email khách hàng làm seed_hint.
+  customer_tier: "standard" (mặc định), chỉ "vip" nếu khách tự nói.
+</step>
+
+<step order="4" name="calculate_order_totals">
+  items = list of dicts, e.g. [{{"product_id": "LT-001", "quantity": 1}}, ...]
+  detail_token = token từ bước 2. discount_rate = rate từ bước 3.
+</step>
+
+<step order="5" name="save_order">
+  Lưu với ĐẦY ĐỦ: customer_name, customer_phone, customer_email, shipping_address, items, detail_token, discount_rate, campaign_code, customer_tier.
+</step>
+</tool_workflow>
+
+<guardrails>
+- TUYỆT ĐỐI KHÔNG gọi list_products nhiều hơn 1 lần trong cùng 1 yêu cầu.
+- XỬ LÝ SẢN PHẨM THIẾU: Nếu một số sản phẩm không có trong catalog hoặc hết hàng, bạn hãy vẫn tiến hành tạo đơn cho NHỮNG SẢN PHẨM CÒN LẠI. Không dừng lại để hỏi.
+- TỪ CHỐI: hóa đơn ảo, gian lận giá/thuế, bỏ qua tồn kho hoàn toàn.
+- KHÔNG tự bịa product_id, giá, mã giảm giá, hoặc bất kỳ dữ liệu nào.
+</guardrails>
+
+<output_format>
+Trả lời cuối cùng BẰNG TIẾNG VIỆT, ngắn gọn, đầy đủ theo cấu trúc:
+
+Khi TẠO ĐƠN THÀNH CÔNG:
+- ✅ Xác nhận + Mã đơn hàng (Order ID)
+- 👤 Tên, Email, SĐT khách hàng
+- 📦 Danh sách sản phẩm + số lượng
+- 💰 Tổng tiền, chiết khấu (số tiền giảm), thành tiền
+- 📍 Địa chỉ giao hàng
+
+Khi TỪ CHỐI: "Rất tiếc, tôi không thể thực hiện yêu cầu này vì [lý do cụ thể]."
+
+Khi CẦN LÀM RÕ: Chỉ hỏi đúng thông tin còn thiếu, không hỏi thừa.
+</output_format>
 """.strip()
 
 
@@ -107,7 +148,7 @@ def build_tools(store: OrderDataStore):
         in_stock_only: bool = True,
         limit: int = 8,
     ) -> str:
-        """Search the local product catalog and return the best matching items."""
+        """Find product IDs. CALL THIS ONCE. Do NOT call this multiple times in a row."""
         tags = required_tags or []
         payload = store.list_products(
             query=query,
@@ -121,7 +162,7 @@ def build_tools(store: OrderDataStore):
 
     @tool(args_schema=ProductDetailInput)
     def get_product_details(product_ids: list[str]) -> str:
-        """Return exact product details for previously discovered product IDs."""
+        """Validate Price/Stock. MUST be called immediately after list_products to get the detail_token."""
         return json.dumps(store.get_product_details(product_ids), ensure_ascii=False)
 
     @tool(args_schema=DiscountInput)
@@ -184,11 +225,15 @@ def build_agent(
     4. Return `create_agent(model=..., tools=..., system_prompt=...)`.
     """
     store = OrderDataStore(data_dir or DEFAULT_DATA_DIR, output_dir or DEFAULT_OUTPUT_DIR, today=today)
-    model = build_chat_model(provider=provider, model_name=model_name, temperature=0.0)
-    tools = build_tools(store)
+    model = build_chat_model(
+        provider=provider,
+        model_name=model_name,
+        temperature=0.0
+    ).bind_tools(build_tools(store))
+
     return create_agent(
         model=model,
-        tools=tools,
+        tools=build_tools(store),
         system_prompt=build_system_prompt(today or store.today),
     )
 

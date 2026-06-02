@@ -6,6 +6,7 @@ import json
 import sys
 import unicodedata
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -266,15 +267,21 @@ def main() -> int:
     if effective_judge_provider is None and any(case["weights"].get("llm_judge", 0) > 0 for case in cases):
         effective_judge_provider = args.provider
 
+    total = len(cases)
     scores: list[CaseScore] = []
-    for case in cases:
+    for idx, case in enumerate(cases, start=1):
+        case_id = case["id"]
+        print(f"\n[{idx}/{total}] Running agent for case: {case_id} ...")
         raw_result = module.run_agent(
             case["query"],
             provider=args.provider,
             model_name=args.model_name,
             today=args.today,
         )
+        print(f"  -> Agent done. {len(raw_result.tool_calls)} tool(s) called.")
+
         result = coerce_result(raw_result, query=case["query"], provider=args.provider, model_name=args.model_name)
+        print(f"  -> Grading...")
         scores.append(
             grade_result(
                 result,
@@ -283,9 +290,33 @@ def main() -> int:
                 judge_model_name=args.judge_model_name,
             )
         )
+        print(f"  -> Scored {scores[-1].score}/{scores[-1].max_score}")
 
     summary = summarize_scores(scores)
-    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    try:
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
+    except UnicodeEncodeError:
+        # Fallback for Windows terminals with limited encoding
+        print(json.dumps(summary, indent=2, ensure_ascii=True))
+
+    # Log results to artifacts/logs/
+    log_dir = ROOT_DIR / "artifacts" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    sanitized_module = args.module.replace(".", "_")
+    log_file = log_dir / f"score_{sanitized_module}_{timestamp}.json"
+
+    log_payload = {
+        "timestamp": datetime.now().isoformat(),
+        "module": args.module,
+        "provider": args.provider,
+        "model_name": args.model_name,
+        "summary": summary
+    }
+    log_file.write_text(json.dumps(log_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"\n[Done] Results logged to: {log_file}")
+
     return 0 if summary["overall_score"] >= args.pass_threshold else 1
 
 
