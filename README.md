@@ -76,6 +76,12 @@ Run tests:
 pytest -q
 ```
 
+Run the Streamlit dashboard:
+
+```bash
+streamlit run streamlit_app.py
+```
+
 ## What A Strong Submission Does
 
 - clarifies before tool use when required fields are missing
@@ -83,5 +89,7 @@ pytest -q
 - follows the expected tool sequence on valid orders
 - saves the correct JSON artifact
 - gives a concise grounded answer in Vietnamese
+
+The repository also includes a simple Streamlit dashboard for browsing the saved order JSON files and score logs under `artifacts/`.
 
 Read [guide.md](/Users/duongnh59.al1/Documents/Project/Vin20K/Cohort2/Day-4-Lab/labs_update/guide.md) before editing `src/`.
